@@ -40,19 +40,123 @@
 
 # Model assumes that fact-checkers fact-check after one another and not simulateously which may result in slightly different results
 
+requesters = []
+fact_checkers = []
+topics = []
+current_date = 0
+
+# Step 12: Define number of epochs (days) and repeat
+total_days = 30
+
+# At the end of an epoch/day remove expired topics
+
+
+def remove_expired_topics():
+    pass
 
 # Step 1: Define topic structure
+
+
+class Topic:
+    initial_value = 0
+    start_date = 0
+    end_date = 0
+
+    voters = []
+    arguments = []
+
+    def __init__(self, initial_value):
+        self.initial_value = initial_value
+
+    def distribute_rewards():
+        pass
+        # Calculate the majority
+        # Calculate investment for true side
+        # Calculate investment for lie side
+        # Get all voters
+        # If the voter was in majority hand out reward in proportion
+        # Otherwise do calc for minority
+
+    # Step 8: Define evidence creation
+    def initialize_available_evidence():
+        pass
+
+    def retrieve_evidence(time_spent):
+        # User retrieves evidence given time
+        pass
 # Step 2: Define argument structure
+
+
+class Argument:
+    evidence = []
+    total_confidence = 0
+
+    def __init__(self, evidence):
+        self.evidence = evidence
+        self.total_confidence = sum(evidence)
+
+
+# Step 3: Define evidence structure
+
+
+class Evidence:
+    # E.g. [(T, 0.5, 1), (F, 1.5, 2), (T, 3.5, 4), (F, 7.0, 8.0) ….] where each value is a tuple of (statement is true/false (validity V), difficult to find, confidence)
+    validity = False
+    difficulty_to_find = 0
+    confidence = 0
+
+    def __init__(self, validity, difficulty_to_find, confidence):
+        self.validity = validity
+        self.difficulty_to_find = difficulty_to_find
+        self.confidence = confidence
+
 # Step 3: Define poster/requester structure
+
+
+class Requester:
+    daily_posts = 10
+    # utility:
+    # number of arguments
+    # number of characters
+
+    def __init__(self, daily_posts):
+        self.daily_posts = daily_posts
+
+    # Step 5: Define topic creation
+    def post_topic(self):
+        print("I posted daily_posts posts")
+
 # Step 4: Define fact-checker/worker structure
-# Step 5: Define topic creation
-# Step 6: Define topic assignment (random)
-# Step 7: Define argument creation
-# Step 8: Define evidence creation
-# Step 9: Define evidence found function
-# Step 10: Define voting
-# Step 11: Define claiming
-# Step 12: Define number of epochs (days) and repeat
+
+
+class FactChecker:
+    dollars = 20
+    rep = 100
+    daily_fact_checks = 1
+
+    def __init__(self, daily_fact_checks):
+        self.daily_fact_checks = daily_fact_checks
+
+    def fact_check(self):
+        print("I fact check daily_posts posts")
+        # Step 6: Define topic assignment (random)
+
+        # Step 7: Define argument creation
+        # (Search for evidence in topic)
+        # Choose side (based on most confidence-inducing evidence) and filter evidence
+        # Make an argument if there is new information.
+
+        # Step 10: Define voting
+
+    def filter_evidence():
+        pass
+
+    def vote():
+        pass
+
+    # Step 11: Define claiming (claim at the end of the epoch/day)
+    def claim():
+        pass
 
 
 def main():
