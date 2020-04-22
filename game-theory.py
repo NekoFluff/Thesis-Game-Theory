@@ -44,13 +44,15 @@ import math
 
 # Step 1: Define topic structure
 
+important_votes = []
+all_times = []
 
 class Topic:
     reward_pool = 0
     start_date = 0
     end_date = 0
 
-    voters = []
+    voters = {}
     arguments = []
     ether_for_lie = 0
     ether_for_truth = 0
@@ -69,19 +71,49 @@ class Topic:
         self.end_date = end_date
         self.all_evidence = list()
         self.max_confidence = [0,0]
+        self.voters = {}
         self.initialize_available_evidence()
-
+        
     def is_expired(self, date):
         return date >= self.end_date
 
     def distribute_rewards(self):
-        pass
-        # Calculate the majority
-        # Calculate investment for true side
-        # Calculate investment for lie side
-        # Get all voters
-        # If the voter was in majority hand out reward in proportion
-        # Otherwise do calc for minority
+        final_reward_pool = self.reward_pool
+
+        # No one participated
+        if (self.lie_votes + self.true_votes == 0):
+            print("no participants")
+            return
+
+        total_num_winners = 0
+        total_investment = 0
+        investments = []
+        total_eth = self.ether_for_lie if self.lie_votes > self.true_votes else self.ether_for_truth
+        
+
+        for key, value in self.voters.items():
+            print('self.voters', key,value)
+            user, arg, eth, rep = value
+            print('arg validity', arg.validity, self.true_votes, self.lie_votes)
+
+            if (arg.validity == True and self.true_votes > self.lie_votes) or (arg.validity == False and self.lie_votes > self.true_votes):
+                print('user', user.identification, user.rep, user.ether)
+                user.ether += self.calculate_eth_reward(eth, total_eth, final_reward_pool)
+                user.rep += 1.1 * rep
+                print('user', user.identification, user.rep, user.ether)
+                total_num_winners += 1
+                total_investment += eth
+                investments.append(eth)
+            else:
+                user.rep += 0.8 * rep
+        
+        print('Make sure distribution == one', total_num_winners, investments, total_investment, total_eth)
+        print('total', total_investment/total_eth)
+
+    # Function to calculate rewards given the amount of ether a user spent
+    def calculate_eth_reward(self, spent_eth, total_eth, reward_pool):
+        print('spent', spent_eth, 'total', total_eth, 'reward pool', reward_pool)
+        return spent_eth / total_eth * reward_pool
 
     # Step 8: Define evidence creation
     def initialize_available_evidence(self):
@@ -92,7 +124,7 @@ class Topic:
         num_true_evidence = 10
         for i in range(1, num_true_evidence + 1):
             difficulty = math.pow(i/num_true_evidence, 2)
-            value = 1 / difficulty
+            value = 2 / difficulty
             e = Evidence(index, True, difficulty, value)
             self.max_confidence[0] += value
             self.all_evidence.append(e)
@@ -105,7 +137,7 @@ class Topic:
             self.max_confidence[1] += value
             self.all_evidence.append(e)
             index += 1
-        
+        print('max_confidence', self.max_confidence)
         print('evidence total:', len(self.all_evidence))
 
     def retrieve_evidence(self, time_spent):
@@ -114,11 +146,15 @@ class Topic:
 
         found_evidence = []
         # There are t rounds. In each round each evidence has the opporunity of being found by the user
-        for i in range(int(time_spent)):
+        global all_times
+        all_times.append(time_spent + 1)
+
+        for i in range(int(time_spent + 1)):
             for e in self.all_evidence:
                 r = random.random()
                 # print(i, r, e.difficulty_to_find)
                 if e not in found_evidence and r < e.difficulty_to_find:
+                    # print('evidence', e.identification, r)
                     found_evidence.append(e)
 
         return found_evidence
@@ -127,8 +163,12 @@ class Topic:
         print(self.reward_pool, self.start_date, self.end_date)
 
     def get_utility_for_participation(self, user_ether):
-        new_ether_pool = self.reward_pool + user_ether
+        # No ether used, no reward
+        if user_ether == 0:
+            return 0
 
+        new_ether_pool = self.reward_pool + user_ether
+        # print('pool', new_ether_pool, user_ether, self.ether_for_lie, self.ether_for_truth)
         # Rational Strategy: Join the side of the majority to win! (votes not visible)
         if self.rep_for_lie > self.rep_for_truth:
             return (user_ether) / (user_ether + self.ether_for_lie) * new_ether_pool
@@ -139,16 +179,32 @@ class Topic:
         self.arguments.append(argument)
         print('added argument', argument)
 
-    def vote(self, argument, ether_spent, reputation_spent):
+    def vote(self, user, argument, ether_spent, reputation_spent, current_date):
+        if user.identification in self.voters:
+            print("ERROR: Already voted")
+            exit(1)
+
         argument.vote()
         self.reward_pool += ether_spent
-
+        print('user vote', user.identification, argument.validity, ether_spent, reputation_spent)
         if argument.validity == False:
+            self.lie_votes += 1
             self.ether_for_lie += ether_spent
             self.rep_for_lie += reputation_spent
         else:
+            self.true_votes += 1
             self.ether_for_truth += ether_spent
             self.rep_for_truth += reputation_spent
+        
+        self.voters[user.identification] = [user, argument, ether_spent, reputation_spent]
+        print('items after vote', self.voters.items(), current_date)
+        if user.identification == 99:
+            global important_votes
+            important_votes.append((user.identification, current_date, argument.validity, ether_spent, reputation_spent))
+        # if (current_date > 10):
+            # exit(1)
+        # if user.identification == 99 and current_date > 25:
+            # exit(1)
 
 # Step 2: Define argument structure
 
@@ -206,24 +262,35 @@ class Requester:
 # Step 4: Define fact-checker/worker structure
 
 
+
 class FactChecker:
     ether = 1 # Each user starts with approximately $200
     rep = 100
     daily_fact_checks = 1
     profile = [1.0, 0]
     num_visible_topics = 10
-    rounds_of_effort_per_ether = 1
+    rounds_of_effort_per_ether = 0.5
+    identification = 0
+    history = []
 
-    def __init__(self, daily_fact_checks, profile):
+    def __init__(self, identification, daily_fact_checks, profile):
+        self.identification = identification
         self.daily_fact_checks = daily_fact_checks
         self.profile = profile
         self.rep = 100
+        self.history = []
 
     def fact_check(self, all_topics, max_topic_ether_value, current_date):
+        # You cannot participate unless you have enough ether
+        if self.ether == 0:
+            return
+
         print("I fact check daily_posts posts")
 
         # Pick a topic
         chosen_topic, best_value = self.pick_best_topic(all_topics)
+        if chosen_topic == None: # None of the topics are able to be voted on.
+            return
 
         # Retrieve evidence for the topic
         time_spent = best_value * self.rounds_of_effort_per_ether # number of rounds 
@@ -231,61 +298,10 @@ class FactChecker:
         print('found evidence', len(all_evidence))
         print('best', best_evidence)
 
-        matching_evidence = [e for e in all_evidence if e.validity == best_evidence.validity]
+        if (len(all_evidence) == 0):
+            return
 
-
-        # Compare against existing evidence in other arguments
-        
-
-        added_evidence = True if len(chosen_topic.arguments) == 0 else False
-        temp_id_list = [e.identification for e in matching_evidence]
-
-        if not added_evidence:
-            for arg in chosen_topic.arguments:
-                if arg.validity == best_evidence.validity:
-                    
-                    # Include evidence from other arguments to improve 'convincing' value of argument a (q_a)
-                    for arg_evidence in arg.evidence:
-                        if arg_evidence.identification not in temp_id_list:
-                            added_evidence = True
-                            ## EVIDENCE SHOULD WORK!!!!
-                            print('new', arg_evidence.identification, arg_evidence.validity, arg_evidence.confidence_value)
-                            for x in matching_evidence:
-                                print('old', x.identification, x.validity, x.confidence_value)
-                            matching_evidence.append(arg_evidence)
-                            temp_id_list.append(arg_evidence.identification)
-
-            
-        # Make an argument if there is new information.
-        if (added_evidence):
-            best_argument = Argument(self, matching_evidence, chosen_topic)
-            best_argument_confidence = best_argument.total_confidence
-            chosen_topic.add_argument(best_argument)
-
-            # Deduct ether in wallet for argument creation transaction
-            self.ether -= 0.00089 # Approximate transaction price in ether to create an argument (https://bitinfocharts.com/ethereum/) ... about 15 cents
-
-
-        # Vote for most convincing argument
-        best_argument_confidence = 0
-        best_argument = None
-        for arg in chosen_topic.arguments:
-            # 3 pieces of information affect the user's decision
-            reputation_influence = (chosen_topic.rep_for_lie + 1)/(chosen_topic.rep_for_truth+1) if arg.validity == False else (chosen_topic.rep_for_truth + 1)/(chosen_topic.rep_for_lie+1)
-            print('rep', arg.creator.rep)
-            print('aaaaa', arg.total_confidence , math.sqrt(arg.creator.rep) , reputation_influence)
-            convincing_value = arg.total_confidence + reputation_influence + math.sqrt(arg.creator.rep) 
-            if convincing_value > best_argument_confidence:
-                best_argument = arg
-                best_argument_confidence = convincing_value
-
-        # Step 10: Define voting
-        # Deduct ether in wallet for vote transaction
-        e, r = self.calculate_ether_and_rep_to_spend(chosen_topic, best_argument)
-        chosen_topic.vote(best_argument, e, r)
-        self.ether -= e # Ether spent to add to reward pool
-        self.rep -= r # Reputation spent to influence other players (fact-checkers)
-        self.ether -= 0.00089 # Approximate transaction price in ether to create an argument (https://bitinfocharts.com/ethereum/) ... about 15 cents
+        self.pick_strategy(all_evidence, best_evidence, chosen_topic, current_date)
 
     def pick_best_topic(self, all_topics):
         # Step 6: Define topic assignment (random)
@@ -295,11 +311,20 @@ class FactChecker:
         best_value = 0
         chosen_topic = None
         for topic in visible_topics:
+            # The fact-checker has already fact-checked this topic
+            if self.identification in topic.voters:
+                print('already fact-checked')
+                continue
+
             utility = topic.get_utility_for_participation(user_ether=self.ether)
+            if utility < 0:
+                print("ERROR: Negative Utility")
+                exit(1)
             if utility > best_value:
                 best_value = utility
                 chosen_topic = topic
 
+        print('chosen topic', best_value, chosen_topic)
         return chosen_topic, best_value
 
     def search_for_evidence(self, topic, time_spent):
@@ -315,15 +340,132 @@ class FactChecker:
 
         return (best_e, evidence)
 
-    def pick_strategy(self):
+    def pick_strategy(self, all_evidence, best_evidence, chosen_topic, current_date):
         # Strategies
         # Each player i has two possible actions: play honestly or play maliciously. 
         # If the player i plays honestly; it follows the protocol and attempts to maximize its own ether reward by creating convincing arguments.
         # If the player i acts malicously; it knowingly uses false information to construct its argument
         # s_i = honest, malicous
-        pass
+        import random
+        r = random.random()
+
+        if r <= self.profile[0]:
+            self.act_honestly(all_evidence, best_evidence, chosen_topic, current_date)
+        else:
+            self.act_maliciously(all_evidence, best_evidence, chosen_topic, current_date)
+        
+
+    def act_honestly(self, all_evidence, best_evidence, chosen_topic, current_date):
+        matching_evidence = [e for e in all_evidence if e.validity == best_evidence.validity]
+
+        # Compare against existing evidence in other arguments
+        added_evidence = True if len(chosen_topic.arguments) == 0 else False
+        temp_id_list = [e.identification for e in matching_evidence]
+
+        if not added_evidence:
+            for arg in chosen_topic.arguments:
+                if arg.validity == best_evidence.validity:
+                    
+                    # Include evidence from other arguments to improve 'convincing' value of argument a (q_a)
+                    for arg_evidence in arg.evidence:
+                        if arg_evidence.identification not in temp_id_list:
+                            added_evidence = True
+                            matching_evidence.append(arg_evidence)
+                            temp_id_list.append(arg_evidence.identification)
+
+            
+        # Make an argument if there is new information.
+        if (added_evidence) and self.ether >= 0.00089:
+            best_argument = Argument(self, matching_evidence, chosen_topic)
+            best_argument_confidence = best_argument.total_confidence
+            chosen_topic.add_argument(best_argument)
+
+            # Deduct ether in wallet for argument creation transaction
+            self.spend_ether(0.0089) # Approximate transaction price in ether to create an argument (https://bitinfocharts.com/ethereum/) ... about 15 cents
 
 
+        # Vote for most convincing argument
+        best_argument_confidence = 0
+        best_argument = None
+        for arg in chosen_topic.arguments:
+            # 3 pieces of information affect the user's decision
+            reputation_influence = (chosen_topic.rep_for_lie + 1)/(chosen_topic.rep_for_truth+1) if arg.validity == False else (chosen_topic.rep_for_truth + 1)/(chosen_topic.rep_for_lie+1)
+            convincing_value = arg.total_confidence #+ reputation_influence + math.sqrt(arg.creator.rep) 
+            if convincing_value > best_argument_confidence:
+                best_argument = arg
+                best_argument_confidence = convincing_value
+
+        # Step 10: Define voting
+        # Deduct ether in wallet for vote transaction
+        self.spend_ether(0.0089) # Approximate transaction price in ether to create an argument (https://bitinfocharts.com/ethereum/) ... about 15 cents
+        e, r = self.calculate_ether_and_rep_to_spend(chosen_topic, best_argument)
+        if (e > 0.05):
+            chosen_topic.vote(self, best_argument, e, r, current_date)
+            self.ether -= e # Ether spent to add to reward pool
+            self.rep -= r # Reputation spent to influence other players (fact-checkers)
+
+    def act_maliciously(self, all_evidence, best_evidence, chosen_topic, current_date):
+        matching_evidence = [e for e in all_evidence if e.validity == False]
+        # Compare against existing evidence in other arguments
+        added_evidence = True if len([a for a in chosen_topic.arguments if a.validity == False]) == 0 else False
+        temp_id_list = [e.identification for e in matching_evidence]
+
+        if len(matching_evidence) > 0:
+            if not added_evidence:
+                for arg in chosen_topic.arguments:
+                    if arg.validity == False:
+                        
+                        # Include evidence from other arguments to improve 'convincing' value of argument a (q_a)
+                        for arg_evidence in arg.evidence:
+                            if arg_evidence.identification not in temp_id_list:
+                                added_evidence = True
+                                matching_evidence.append(arg_evidence)
+                                temp_id_list.append(arg_evidence.identification)
+
+                
+            # Make an argument if there is new information.
+            if (added_evidence) and self.ether >= 0.00089:
+                best_argument = Argument(self, matching_evidence, chosen_topic)
+                best_argument_confidence = best_argument.total_confidence
+                chosen_topic.add_argument(best_argument)
+
+                # Deduct ether in wallet for argument creation transaction
+                self.spend_ether(0.0089) # Approximate transaction price in ether to create an argument (https://bitinfocharts.com/ethereum/) ... about 15 cents
+
+
+        # Vote for most convincing argument
+        # if len(chosen_topic.arguments) == 0:
+        #     return
+
+
+        best_argument_confidence = 0
+        best_argument = None
+        for arg in chosen_topic.arguments:
+            # Skip all arguments that actually reveal the truth about the topic
+            if arg.validity == True:
+                continue
+            # 3 pieces of information affect the user's decision
+            reputation_influence = (chosen_topic.rep_for_lie + 1)/(chosen_topic.rep_for_truth+1) if arg.validity == False else (chosen_topic.rep_for_truth + 1)/(chosen_topic.rep_for_lie+1)
+            convincing_value = arg.total_confidence + reputation_influence + math.sqrt(arg.creator.rep) 
+            if convincing_value > best_argument_confidence:
+                best_argument = arg
+                best_argument_confidence = convincing_value
+
+        # if best_argument is None:
+        #     return
+
+        # Step 10: Define voting
+        # Deduct ether in wallet for vote transaction
+        self.spend_ether(0.0089) # Approximate transaction price in ether to create an argument (https://bitinfocharts.com/ethereum/) ... about 15 cents
+        e, r = self.calculate_ether_and_rep_to_spend(chosen_topic, best_argument)
+        if (e > 0.05):
+            chosen_topic.vote(self, best_argument, 0.05, r, current_date)
+            self.ether -= 0.05 # Ether spent to add to reward pool
+            self.rep -= r # Reputation spent to influence other players (fact-checkers)
+
+    def spend_ether(self, eth):
+        self.ether -= eth
+        self.ether = max(self.ether, 0)
 
     # Simple mechanism where the more confident a user is in an argument, the more ether and reputation they are willing to spend when voting
     def calculate_ether_and_rep_to_spend(self, topic, argument):
@@ -333,18 +475,19 @@ class FactChecker:
         else:
             confidence_ratio = argument.total_confidence / topic.max_confidence[0]
         
-        print('reputation', self.rep, confidence_ratio * self.rep)
-        if (confidence_ratio > 1.05):
-            for x in argument.evidence:
-                print('zzz', x.identification)
-            print('ERROR')
-            exit(1)
-        confidence_ratio = min(confidence_ratio, 1)
+        print('reputation', argument.validity, argument.total_confidence, self.rep, confidence_ratio, confidence_ratio * self.rep)
+        # if (confidence_ratio > 1):
+        #     for x in argument.evidence:
+        #         print('zzz', x.identification)
+        #     print('ERROR')
+        #     exit(1)
+        confidence_ratio = min(confidence_ratio, 1) / 2
+        
         return (confidence_ratio * self.ether, confidence_ratio * self.rep)
 
-    # Step 11: Define claiming (claim at the end of the epoch/day)
-    def claim(self):
-        pass
+    # Store data
+    def save(self, current_day):
+        self.history.append([self.identification, current_day, self.ether, self.rep])
 
 
 # Normal Form Game:
@@ -437,7 +580,7 @@ class Simulator():
     requesters = []
 
     # Fact Checkers
-    num_fact_checkers = 10
+    num_fact_checkers = 100
     num_fact_checks_daily = 1
     fact_checkers = []
 
@@ -449,7 +592,7 @@ class Simulator():
     max_topic_ether_value = 6 # Constrained to 6 ether or $1000
 
     # Step 12: Define number of epochs (days) and repeat
-    total_days = 365 # What would occur in a year?
+    total_days = 60 # What would occur in a year?
     current_date = 0  # simulation starts at day 0
 
     def __init__(self):
@@ -458,21 +601,58 @@ class Simulator():
         self.generate_fact_checkers()
 
     def run_simulation(self):
+        # Record status of each person
+        for fc in self.fact_checkers:
+            fc.save(self.current_date)
+
         for i in range(self.total_days):
             self.current_date = i
 
-            # Generate topics
-            self.generate_new_topics()
+            if (self.total_days - i > self.topic_duration):
+                # Generate topics
+                self.generate_new_topics()
 
-            # Create arguments and vote
-            for fc in self.fact_checkers:
-                # 1) View arguments, 2) View evidence, and 3) Make new argument or fact-check
-                fc.fact_check(self.topics, self.max_topic_ether_value, self.current_date)
+                # Create arguments and vote
+                for fc in self.fact_checkers:
+                    # Stop fact-checking when there are 3 days remaining only
+                    if (self.total_days - i <= self.topic_duration):
+                        break
+
+                    # 1) View arguments, 2) View evidence, and 3) Make new argument or fact-check
+                    fc.fact_check(self.topics, self.max_topic_ether_value, self.current_date)
 
             # Remove expired topics and claim rewards (reward is distributed to all voters)
             self.remove_expired_topics()
 
+            # Record status of each person
+            for fc in self.fact_checkers:
+                fc.save(self.current_date + 1)
             # Repeat for # of total_days
+
+
+    def retrieve_results(self):
+        all_fact_checker_data = {}
+        for fc in self.fact_checkers:
+            # all_fact_checker_data[fc.profile[0]] = fc.history
+            all_fact_checker_data[fc.identification] = fc.history
+
+        true_topics = 0
+        lie_topics = 0
+        equal_topics = 0
+        not_voted_topics = 0      
+        for topic in self.all_topics:
+
+            if topic.true_votes == 0 and topic.lie_votes == 0:
+                not_voted_topics += 1
+            elif topic.true_votes > topic.lie_votes:
+                true_topics += 1
+            elif topic.lie_votes > topic.true_votes:
+                lie_topics += 1
+            else:
+                equal_topics += 1
+            
+
+        return all_fact_checker_data, (true_topics, lie_topics, equal_topics, not_voted_topics)
 
     def random_topic_value(self):
         import random
@@ -482,6 +662,7 @@ class Simulator():
         new_topics = []
         for topic in self.topics:
             if topic.is_expired(self.current_date):
+                print('distribute')
                 topic.distribute_rewards()
             else:
                 new_topics.append(topic)
@@ -504,12 +685,31 @@ class Simulator():
             self.requesters.append(r)
 
     def generate_fact_checkers(self):
-        for i in range(self.num_fact_checkers):
-            honest_prob = 1 - (1/(self.num_fact_checkers - 1)) * i
-            malicious_prob = 1 - honest_prob
-            fc = FactChecker(self.num_fact_checks_daily, [honest_prob, malicious_prob])
-            self.fact_checkers.append(fc)
+        # at least 80% are non-malicious
+        num_honest = int(self.num_fact_checkers * 0.2)
+        index = 0
 
+        # for i in range(self.num_fact_checkers):
+        #     honest_prob = 1 - (1/(self.num_fact_checkers - 1)) * i
+        #     malicious_prob = 1 - honest_prob
+        #     fc = FactChecker(index, self.num_fact_checks_daily, [honest_prob, malicious_prob])
+        #     self.fact_checkers.append(fc)
+        #     index += 1
+
+        for i in range(num_honest):
+            honest_prob = 1#1 - (1/(self.num_fact_checkers - 1)) * i
+            malicious_prob = 0#1 - honest_prob
+            fc = FactChecker(index, self.num_fact_checks_daily, [honest_prob, malicious_prob])
+            self.fact_checkers.append(fc)
+            index += 1
+
+        for i in range(self.num_fact_checkers - num_honest):
+            honest_prob = 0.5
+            malicious_prob = 0.5
+            fc = FactChecker(index, self.num_fact_checks_daily, [honest_prob, malicious_prob])
+            self.fact_checkers.append(fc)
+            index += 1
+            
     def print_topics(self):
         for topic in self.topics:
             topic.print_details()
@@ -519,8 +719,19 @@ def main():
     s = Simulator()
     s.run_simulation()
 
+    fact_checker_data, topic_data = s.retrieve_results()
+    for k,v in fact_checker_data.items():
+        print('-' * 50)
+        print(v)
+    print(topic_data)
 
+    print('x' * 50)
+    global important_votes
+    print(important_votes)
 
+    # print('-' * 50)
+    # global all_times
+    # print(all_times)
 
     # print('Hello World!')
     # s.generate_new_topics()
